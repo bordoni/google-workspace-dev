@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+      select, input, textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      textarea {
+        min-height: 100px;
+        resize: vertical;
+      }
+      .field {
+        margin-bottom: 15px;
+      }
+      .buttons {
+        margin-top: 20px;
+        text-align: right;
+      }
+      .buttons button {
+        padding: 8px 16px;
+        margin-left: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .create-btn {
+        background-color: #0F9D58;
+        color: white;
+        border: none;
+      }
+      .cancel-btn {
+        background-color: white;
+        border: 1px solid #ddd;
+      }
+      .template-info {
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        font-size: 0.9em;
+      }
+      .loading {
+        display: none;
+        text-align: center;
+        padding: 20px;
+      }
+      .loading-spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #0F9D58;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 2s linear infinite;
+        margin: 0 auto 10px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="form-container">
+      <h2>Create Jira Ticket from Template</h2>
+      
+      <div class="template-info">
+        Choose a template and fill out the fields below. The template will be applied to create structured Jira tickets.
+      </div>
+      
+      <div class="form-group">
+        <label for="templateSelect">Template</label>
+        <select id="templateSelect" onchange="loadTemplateFields()">
+          <option value="">-- Select Template --</option>
+          <!-- Will be populated with available templates -->
+        </select>
+      </div>
+      
+      <div id="dynamicFields">
+        <!-- Will be populated based on the selected template -->
+      </div>
+      
+      <div class="form-group">
+        <label for="epicLink">Epic Link (optional)</label>
+        <input type="text" id="epicLink" placeholder="EPIC-123">
+      </div>
+      
+      <div class="buttons">
+        <button class="cancel-btn" onclick="closeDialog()">Cancel</button>
+        <button class="create-btn" onclick="createTicket()">Create Ticket</button>
+      </div>
+    </div>
+    
+    <div id="loading" class="loading">
+      <div class="loading-spinner"></div>
+      <div>Creating ticket...</div>
+    </div>
+    
+    <script>
+      // Store template data
+      let templates = {};
+      
+      // Load templates when dialog opens
+      document.addEventListener('DOMContentLoaded', function() {
+        google.script.run.withSuccessHandler(initializeTemplates).getTicketTemplates();
+      });
+      
+      // Initialize templates dropdown
+      function initializeTemplates(templatesData) {
+        templates = templatesData;
+        
+        const templateSelect = document.getElementById('templateSelect');
+        
+        // Add template options
+        Object.keys(templates).forEach(function(templateName) {
+          const option = document.createElement('option');
+          option.value = templateName;
+          option.textContent = templateName;
+          templateSelect.appendChild(option);
+        });
+      }
+      
+      // Load template fields based on selected template
+      function loadTemplateFields() {
+        const templateName = document.getElementById('templateSelect').value;
+        const dynamicFields = document.getElementById('dynamicFields');
+        
+        // Clear existing fields
+        dynamicFields.innerHTML = '';
+        
+        if (!templateName) return;
+        
+        const template = templates[templateName];
+        
+        // Find template variables in description and summary
+        const vars = new Set();
+        
+        // Extract variables from template strings
+        function extractVariables(str) {
+          const matches = str.match(/\${([^}]+)}/g) || [];
+          matches.forEach(function(match) {
+            vars.add(match.slice(2, -1));
+          });
+        }
+        
+        if (template.summary) {
+          extractVariables(template.summary);
+        }
+        
+        if (template.description) {
+          extractVariables(template.description);
+        }
+        
+        // Create input fields for each variable
+        vars.forEach(function(variable) {
+          const field = document.createElement('div');
+          field.className = 'field';
+          
+          const label = document.createElement('label');
+          label.textContent = variable;
+          label.setAttribute('for', 'field_' + variable.replace(/\s+/g, '_'));
+          
+          let input;
+          
+          // Use textarea for fields that likely need more space
+          if (variable.toLowerCase().includes('description') || 
+              variable.toLowerCase().includes('steps') ||
+              variable.toLowerCase().includes('criteria') ||
+              variable.toLowerCase().includes('result')) {
+            input = document.createElement('textarea');
+          } else {
+            input = document.createElement('input');
+            input.type = 'text';
+          }
+          
+          input.id = 'field_' + variable.replace(/\s+/g, '_');
+          input.placeholder = variable;
+          
+          field.appendChild(label);
+          field.appendChild(input);
+          dynamicFields.appendChild(field);
+        });
+      }
+      
+      // Create a ticket using the template and entered values
+      function createTicket() {
+        const templateName = document.getElementById('templateSelect').value;
+        
+        if (!templateName) {
+          alert('Please select a template');
+          return;
+        }
+        
+        // Show loading state
+        document.getElementById('form-container').style.display = 'none';
+        document.getElementById('loading').style.display = 'block';
+        
+        // Gather field values
+        const fieldValues = {};
+        
+        // Find all field inputs and get their values
+        const fields = document.querySelectorAll('#dynamicFields input, #dynamicFields textarea');
+        fields.forEach(function(field) {
+          const fieldId = field.id;
+          if (fieldId.startsWith('field_')) {
+            const fieldName = fieldId.substring(6).replace(/_/g, ' ');
+            fieldValues[fieldName] = field.value;
+          }
+        });
+        
+        // Add epic link if provided
+        const epicLink = document.getElementById('epicLink').value;
+        if (epicLink) {
+          fieldValues['EpicLink'] = epicLink;
+        }
+        
+        // Create the ticket
+        google.script.run
+          .withSuccessHandler(onTicketCreated)
+          .withFailureHandler(onTicketError)
+          .createTicketFromTemplate(templateName, fieldValues);
+      }
+      
+      // Handle successful ticket creation
+      function onTicketCreated(result) {
+        alert('Ticket created successfully: ' + result.key);
+        closeDialog();
+      }
+      
+      // Handle ticket creation error
+      function onTicketError(error) {
+        document.getElementById('form-container').style.display = 'block';
+        document.getElementById('loading').style.display = 'none';
+        alert('Error creating ticket: ' + error.message);
+      }
+      
+      // Close the dialog
+      function closeDialog() {
+        google.script.host.close();
+      }
+    </script>
+  </body>
+</html> 

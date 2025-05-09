@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+      input[type="text"], input[type="password"] {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      input[type="password"] {
+        letter-spacing: 0.3em;
+      }
+      .buttons {
+        margin-top: 20px;
+        text-align: right;
+      }
+      .buttons button {
+        padding: 8px 16px;
+        margin-left: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .save-btn {
+        background-color: #0F9D58;
+        color: white;
+        border: none;
+      }
+      .cancel-btn {
+        background-color: white;
+        border: 1px solid #ddd;
+      }
+      .hint {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Jira Integration Settings</h2>
+    
+    <div class="form-group">
+      <label for="jiraUrl">Jira URL</label>
+      <input type="text" id="jiraUrl" placeholder="https://your-domain.atlassian.net">
+      <div class="hint">The base URL of your Jira instance</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="jiraEmail">Email</label>
+      <input type="text" id="jiraEmail" placeholder="your-email@example.com">
+      <div class="hint">Your Jira account email address</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="jiraApiToken">API Token</label>
+      <input type="password" id="jiraApiToken">
+      <div class="hint">Your Jira API token (create one at https://id.atlassian.com/manage-profile/security/api-tokens)</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="jiraProject">Project Key</label>
+      <input type="text" id="jiraProject" placeholder="PROJ">
+      <div class="hint">The key of the Jira project (e.g., PROJ)</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="defaultIssueType">Default Issue Type</label>
+      <input type="text" id="defaultIssueType" placeholder="Task">
+      <div class="hint">Default issue type for new tickets (e.g., Task, Bug, Story)</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="epicFieldId">Epic Link Field ID (optional)</label>
+      <input type="text" id="epicFieldId" placeholder="customfield_10014">
+      <div class="hint">The custom field ID used for Epic Link (usually customfield_10014)</div>
+    </div>
+    
+    <div class="buttons">
+      <button class="cancel-btn" onclick="closeDialog()">Cancel</button>
+      <button class="save-btn" onclick="saveSettings()">Save Settings</button>
+    </div>
+    
+    <script>
+      // Load current settings when dialog opens
+      document.addEventListener('DOMContentLoaded', loadSettings);
+      
+      // Load settings from script properties
+      function loadSettings() {
+        google.script.run.withSuccessHandler(fillForm).getSettings();
+      }
+      
+      // Fill the form with the loaded settings
+      function fillForm(settings) {
+        if (settings) {
+          document.getElementById('jiraUrl').value = settings.jiraUrl || '';
+          document.getElementById('jiraEmail').value = settings.jiraEmail || '';
+          document.getElementById('jiraApiToken').value = settings.jiraApiToken || '';
+          document.getElementById('jiraProject').value = settings.jiraProject || '';
+          document.getElementById('defaultIssueType').value = settings.defaultIssueType || 'Task';
+          document.getElementById('epicFieldId').value = settings.epicFieldId || '';
+        }
+      }
+      
+      // Save settings to script properties
+      function saveSettings() {
+        var settings = {
+          jiraUrl: document.getElementById('jiraUrl').value,
+          jiraEmail: document.getElementById('jiraEmail').value,
+          jiraApiToken: document.getElementById('jiraApiToken').value,
+          jiraProject: document.getElementById('jiraProject').value,
+          defaultIssueType: document.getElementById('defaultIssueType').value || 'Task',
+          epicFieldId: document.getElementById('epicFieldId').value
+        };
+        
+        google.script.run
+          .withSuccessHandler(onSaveSuccess)
+          .withFailureHandler(onSaveFailure)
+          .saveSettings(settings);
+      }
+      
+      // Handle successful save
+      function onSaveSuccess(message) {
+        alert(message);
+        closeDialog();
+      }
+      
+      // Handle save failure
+      function onSaveFailure(error) {
+        alert('Error saving settings: ' + error.message);
+      }
+      
+      // Close the dialog
+      function closeDialog() {
+        google.script.host.close();
+      }
+    </script>
+  </body>
+</html> 

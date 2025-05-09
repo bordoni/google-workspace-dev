@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+      }
+      th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      select {
+        width: 100%;
+        padding: 6px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .buttons {
+        margin-top: 20px;
+        text-align: right;
+      }
+      .buttons button {
+        padding: 8px 16px;
+        margin-left: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .save-btn {
+        background-color: #0F9D58;
+        color: white;
+        border: none;
+      }
+      .cancel-btn {
+        background-color: white;
+        border: 1px solid #ddd;
+      }
+      .info {
+        background-color: #e8f4f8;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Column Mapping Configuration</h2>
+    
+    <div class="info">
+      Map your Google Sheet columns to Jira ticket fields. Each column can be directed to a specific field in Jira.
+    </div>
+    
+    <table id="mappingTable">
+      <thead>
+        <tr>
+          <th>Sheet Column</th>
+          <th>Jira Field</th>
+        </tr>
+      </thead>
+      <tbody id="mappingBody">
+        <!-- Will be populated by JavaScript -->
+      </tbody>
+    </table>
+    
+    <div class="buttons">
+      <button class="cancel-btn" onclick="closeDialog()">Cancel</button>
+      <button class="save-btn" onclick="saveMapping()">Save Mapping</button>
+    </div>
+    
+    <script>
+      // Available Jira fields to map to
+      const JIRA_FIELDS = [
+        { id: 'summary', name: 'Summary' },
+        { id: 'description', name: 'Description' },
+        { id: 'issuetype', name: 'Issue Type' },
+        { id: 'priority', name: 'Priority' },
+        { id: 'labels', name: 'Labels' },
+        { id: 'components', name: 'Components' },
+        { id: 'epicLink', name: 'Epic Link' },
+        { id: 'assignee', name: 'Assignee' },
+        { id: 'reporter', name: 'Reporter' },
+        { id: 'duedate', name: 'Due Date' },
+        { id: 'none', name: '-- Not Mapped --' }
+      ];
+      
+      // Store the sheet column names
+      let sheetColumns = [];
+      
+      // When the page loads, get the sheet columns and current mapping
+      document.addEventListener('DOMContentLoaded', function() {
+        google.script.run.withSuccessHandler(initializeMapping).getSheetColumns();
+      });
+      
+      // Initialize the mapping table with sheet columns and current mappings
+      function initializeMapping(columns) {
+        sheetColumns = columns;
+        
+        const tbody = document.getElementById('mappingBody');
+        tbody.innerHTML = ''; // Clear existing rows
+        
+        // For each column in the sheet
+        sheetColumns.forEach(function(column) {
+          const row = document.createElement('tr');
+          
+          // Column name cell
+          const nameCell = document.createElement('td');
+          nameCell.textContent = column;
+          row.appendChild(nameCell);
+          
+          // Jira field dropdown cell
+          const fieldCell = document.createElement('td');
+          const select = document.createElement('select');
+          select.id = 'mapping_' + column.replace(/\s+/g, '_');
+          
+          // Add options for each Jira field
+          JIRA_FIELDS.forEach(function(field) {
+            const option = document.createElement('option');
+            option.value = field.id;
+            option.textContent = field.name;
+            
+            // Try to intelligently set default mapping based on column name
+            if (
+              (column.toLowerCase() === 'summary' && field.id === 'summary') ||
+              (column.toLowerCase() === 'description' && field.id === 'description') ||
+              (column.toLowerCase() === 'issue type' && field.id === 'issuetype') ||
+              (column.toLowerCase() === 'priority' && field.id === 'priority') ||
+              (column.toLowerCase() === 'labels' && field.id === 'labels') ||
+              (column.toLowerCase() === 'components' && field.id === 'components') ||
+              (column.toLowerCase() === 'epic link' && field.id === 'epicLink') ||
+              (column.toLowerCase() === 'assignee' && field.id === 'assignee') ||
+              (column.toLowerCase() === 'reporter' && field.id === 'reporter') ||
+              (column.toLowerCase() === 'due date' && field.id === 'duedate')
+            ) {
+              option.selected = true;
+            }
+            
+            // Default to "not mapped" if no match
+            if (field.id === 'none' && !select.value) {
+              option.selected = true;
+            }
+            
+            select.appendChild(option);
+          });
+          
+          fieldCell.appendChild(select);
+          row.appendChild(fieldCell);
+          
+          tbody.appendChild(row);
+        });
+        
+        // Load any existing mapping
+        google.script.run.withSuccessHandler(loadExistingMapping).getColumnMapping();
+      }
+      
+      // Load existing mapping configuration
+      function loadExistingMapping(mapping) {
+        if (mapping) {
+          Object.keys(mapping).forEach(function(column) {
+            const selectId = 'mapping_' + column.replace(/\s+/g, '_');
+            const selectElement = document.getElementById(selectId);
+            
+            if (selectElement) {
+              selectElement.value = mapping[column];
+            }
+          });
+        }
+      }
+      
+      // Save the column mapping
+      function saveMapping() {
+        const mapping = {};
+        
+        sheetColumns.forEach(function(column) {
+          const selectId = 'mapping_' + column.replace(/\s+/g, '_');
+          const selectElement = document.getElementById(selectId);
+          
+          if (selectElement && selectElement.value !== 'none') {
+            mapping[column] = selectElement.value;
+          }
+        });
+        
+        google.script.run
+          .withSuccessHandler(onSaveSuccess)
+          .withFailureHandler(onSaveFailure)
+          .saveColumnMapping(mapping);
+      }
+      
+      // Handle successful save
+      function onSaveSuccess(message) {
+        alert(message);
+        closeDialog();
+      }
+      
+      // Handle save failure
+      function onSaveFailure(error) {
+        alert('Error saving mapping: ' + error.message);
+      }
+      
+      // Close the dialog
+      function closeDialog() {
+        google.script.host.close();
+      }
+    </script>
+  </body>
+</html> 
