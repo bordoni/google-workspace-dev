@@ -49,45 +49,93 @@
         color: #666;
         margin-top: 5px;
       }
+      .tab-header {
+        font-weight: bold;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #eee;
+      }
+      .tab-section {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+      }
+      .tab-selector {
+        padding: 8px;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        width: 100%;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .error-message {
+        color: #d32f2f;
+        background-color: #ffebee;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        display: none;
+      }
     </style>
   </head>
   <body>
     <h2>Jira Integration Settings</h2>
     
+    <div id="errorMessage" class="error-message"></div>
+    
+    <h3>Global Settings</h3>
+    
     <div class="form-group">
       <label for="jiraUrl">Jira URL</label>
-      <input type="text" id="jiraUrl" placeholder="https://your-domain.atlassian.net">
+      <input type="text" id="jiraUrl" placeholder="https://stellarwp.atlassian.net" value="https://stellarwp.atlassian.net">
       <div class="hint">The base URL of your Jira instance</div>
     </div>
     
     <div class="form-group">
       <label for="jiraEmail">Email</label>
-      <input type="text" id="jiraEmail" placeholder="your-email@example.com">
-      <div class="hint">Your Jira account email address</div>
+      <input type="text" id="jiraEmail" placeholder="Current Google account email">
+      <div class="hint">Your Jira account email address (defaults to your Google account email)</div>
     </div>
     
     <div class="form-group">
       <label for="jiraApiToken">API Token</label>
       <input type="password" id="jiraApiToken">
-      <div class="hint">Your Jira API token (create one at https://id.atlassian.com/manage-profile/security/api-tokens)</div>
+      <div class="hint">Your Jira API token (create one at <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">https://id.atlassian.com/manage-profile/security/api-tokens</a>)</div>
     </div>
     
-    <div class="form-group">
-      <label for="jiraProject">Project Key</label>
-      <input type="text" id="jiraProject" placeholder="PROJ">
-      <div class="hint">The key of the Jira project (e.g., PROJ)</div>
-    </div>
+    <h3>Tab-Specific Settings</h3>
+    <div class="hint">These settings are specific to each tab in your spreadsheet.</div>
     
     <div class="form-group">
-      <label for="defaultIssueType">Default Issue Type</label>
-      <input type="text" id="defaultIssueType" placeholder="Task">
-      <div class="hint">Default issue type for new tickets (e.g., Task, Bug, Story)</div>
+      <label for="tabSelector">Select Tab</label>
+      <select id="tabSelector" class="tab-selector" onchange="switchTab()">
+        <!-- Will be populated by JavaScript -->
+      </select>
     </div>
     
-    <div class="form-group">
-      <label for="epicFieldId">Epic Link Field ID (optional)</label>
-      <input type="text" id="epicFieldId" placeholder="customfield_10014">
-      <div class="hint">The custom field ID used for Epic Link (usually customfield_10014)</div>
+    <div id="tabSettings">
+      <div class="tab-section">
+        <div class="form-group">
+          <label for="jiraProject">Project Key</label>
+          <input type="text" id="jiraProject" placeholder="PROJ">
+          <div class="hint">The key of the Jira project for this tab (e.g., PROJ)</div>
+        </div>
+        
+        <div class="form-group">
+          <label for="defaultIssueType">Default Issue Type</label>
+          <input type="text" id="defaultIssueType" placeholder="Task">
+          <div class="hint">Default issue type for new tickets (e.g., Task, Bug, Story)</div>
+        </div>
+        
+        <div class="form-group">
+          <label for="epicFieldId">Epic Link Field ID</label>
+          <input type="text" id="epicFieldId" placeholder="customfield_10014">
+          <div class="hint">The custom field ID used for Epic Link (usually customfield_10014)</div>
+        </div>
+      </div>
     </div>
     
     <div class="buttons">
@@ -96,35 +144,165 @@
     </div>
     
     <script>
-      // Load current settings when dialog opens
-      document.addEventListener('DOMContentLoaded', loadSettings);
+      // Variable to store all tab settings
+      let tabSettings = {};
+      let currentTab = '';
+      let allTabs = [];
       
-      // Load settings from script properties
-      function loadSettings() {
-        google.script.run.withSuccessHandler(fillForm).getSettings();
+      // Load current settings when dialog opens
+      document.addEventListener('DOMContentLoaded', initializeSettings);
+      
+      // Initialize the dialog
+      function initializeSettings() {
+        showError(""); // Clear any previous errors
+        
+        console.log("Initializing settings");
+        
+        // Load global settings first
+        google.script.run
+          .withSuccessHandler(function(settings) {
+            console.log("Settings loaded successfully");
+            fillForm(settings);
+          })
+          .withFailureHandler(function(error) {
+            console.error("Error loading settings:", error);
+            showError("Error loading settings: " + error.message);
+          })
+          .getSettings();
+           
+        // Get all sheet names
+        console.log("Requesting sheet names");
+        google.script.run
+          .withSuccessHandler(function(tabs) {
+            console.log("Sheet names received:", tabs);
+            setupTabs(tabs);
+          })
+          .withFailureHandler(function(error) {
+            console.error("Error loading tabs:", error);
+            // If we get an error, try to get at least the active sheet name
+            console.log("Falling back to active sheet name");
+            google.script.run
+              .withSuccessHandler(function(activeSheetName) {
+                console.log("Active sheet name received:", activeSheetName);
+                setupTabs([activeSheetName]);
+              })
+              .withFailureHandler(function(error) {
+                console.error("Failed to get active sheet name:", error);
+                // Final fallback to a default name
+                setupTabs(["Sheet1"]);
+              })
+              .getActiveSheetName();
+          })
+          .getAllSheetNames();
+      }
+      
+      // Setup tabs in the dropdown
+      function setupTabs(tabs) {
+        console.log("Setting up tabs:", tabs);
+        if (!tabs || !Array.isArray(tabs)) {
+          showError("No tabs found or invalid response");
+          return;
+        }
+        
+        allTabs = tabs;
+        
+        // Populate the tab selector
+        const tabSelector = document.getElementById('tabSelector');
+        tabSelector.innerHTML = ''; // Clear existing options
+        
+        if (tabs.length === 0) {
+          showError("No tabs found in the spreadsheet");
+          return;
+        }
+        
+        tabs.forEach(function(tab) {
+          const option = document.createElement('option');
+          option.value = tab;
+          option.textContent = tab;
+          tabSelector.appendChild(option);
+        });
+        
+        // Set current tab to first tab
+        currentTab = tabs[0];
+        tabSelector.value = currentTab;
+        console.log("Selected tab:", currentTab);
+        
+        // Update form with the selected tab's settings
+        updateTabForm();
+      }
+      
+      // Show error message
+      function showError(message) {
+        const errorElement = document.getElementById('errorMessage');
+        if (message) {
+          errorElement.textContent = message;
+          errorElement.style.display = 'block';
+        } else {
+          errorElement.style.display = 'none';
+        }
+      }
+      
+      // Handle tab selection change
+      function switchTab() {
+        // Save current tab settings
+        saveCurrentTabSettings();
+        
+        // Update current tab
+        currentTab = document.getElementById('tabSelector').value;
+        
+        // Update form with the selected tab's settings
+        updateTabForm();
+      }
+      
+      // Save the current tab's settings to the tabSettings object
+      function saveCurrentTabSettings() {
+        if (!currentTab) return;
+        
+        tabSettings[currentTab] = {
+          jiraProject: document.getElementById('jiraProject').value,
+          defaultIssueType: document.getElementById('defaultIssueType').value || 'Task',
+          epicFieldId: document.getElementById('epicFieldId').value || 'customfield_10014'
+        };
+      }
+      
+      // Update the form with the current tab's settings
+      function updateTabForm() {
+        if (!currentTab) return;
+        
+        const settings = tabSettings[currentTab] || { 
+          jiraProject: '', 
+          defaultIssueType: 'Task', 
+          epicFieldId: 'customfield_10014'
+        };
+        
+        document.getElementById('jiraProject').value = settings.jiraProject || '';
+        document.getElementById('defaultIssueType').value = settings.defaultIssueType || 'Task';
+        document.getElementById('epicFieldId').value = settings.epicFieldId || 'customfield_10014';
       }
       
       // Fill the form with the loaded settings
       function fillForm(settings) {
         if (settings) {
+          // Fill global settings
           document.getElementById('jiraUrl').value = settings.jiraUrl || '';
           document.getElementById('jiraEmail').value = settings.jiraEmail || '';
           document.getElementById('jiraApiToken').value = settings.jiraApiToken || '';
-          document.getElementById('jiraProject').value = settings.jiraProject || '';
-          document.getElementById('defaultIssueType').value = settings.defaultIssueType || 'Task';
-          document.getElementById('epicFieldId').value = settings.epicFieldId || '';
+          
+          // Store tab settings
+          tabSettings = settings.tabSettings || {};
         }
       }
       
       // Save settings to script properties
       function saveSettings() {
+        // Save current tab settings before submitting
+        saveCurrentTabSettings();
+        
         var settings = {
           jiraUrl: document.getElementById('jiraUrl').value,
           jiraEmail: document.getElementById('jiraEmail').value,
           jiraApiToken: document.getElementById('jiraApiToken').value,
-          jiraProject: document.getElementById('jiraProject').value,
-          defaultIssueType: document.getElementById('defaultIssueType').value || 'Task',
-          epicFieldId: document.getElementById('epicFieldId').value
+          tabSettings: tabSettings
         };
         
         google.script.run
@@ -141,7 +319,7 @@
       
       // Handle save failure
       function onSaveFailure(error) {
-        alert('Error saving settings: ' + error.message);
+        showError("Error saving settings: " + error.message);
       }
       
       // Close the dialog

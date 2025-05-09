@@ -55,13 +55,31 @@
         border-radius: 4px;
         margin-bottom: 20px;
       }
+      .required-checkbox {
+        margin-left: 10px;
+      }
+      .checkbox-label {
+        font-size: 0.9em;
+        color: #333;
+      }
+      .modification-options {
+        margin-top: 5px;
+        padding: 5px;
+        border-top: 1px dotted #ccc;
+        display: none;
+      }
+      .mod-label {
+        display: block;
+        margin: 5px 0;
+        font-size: 0.9em;
+      }
     </style>
   </head>
   <body>
     <h2>Column Mapping Configuration</h2>
     
     <div class="info">
-      Map your Google Sheet columns to Jira ticket fields. Each column can be directed to a specific field in Jira.
+      Map your Google Sheet columns to Jira ticket fields. Each column can be directed to a specific field in Jira. Mark fields as required to ensure they're present before syncing.
     </div>
     
     <table id="mappingTable">
@@ -69,6 +87,7 @@
         <tr>
           <th>Sheet Column</th>
           <th>Jira Field</th>
+          <th>Required</th>
         </tr>
       </thead>
       <tbody id="mappingBody">
@@ -84,8 +103,14 @@
     <script>
       // Available Jira fields to map to
       const JIRA_FIELDS = [
+        { id: 'none', name: '-- Not Mapped --' },
+        { id: 'ticketId', name: 'Jira Ticket ID' },
         { id: 'summary', name: 'Summary' },
         { id: 'description', name: 'Description' },
+        { id: 'prepend_summary', name: 'Prepend to Summary' },
+        { id: 'append_summary', name: 'Append to Summary' },
+        { id: 'prepend_description', name: 'Prepend to Description' },
+        { id: 'append_description', name: 'Append to Description' },
         { id: 'issuetype', name: 'Issue Type' },
         { id: 'priority', name: 'Priority' },
         { id: 'labels', name: 'Labels' },
@@ -93,8 +118,7 @@
         { id: 'epicLink', name: 'Epic Link' },
         { id: 'assignee', name: 'Assignee' },
         { id: 'reporter', name: 'Reporter' },
-        { id: 'duedate', name: 'Due Date' },
-        { id: 'none', name: '-- Not Mapped --' }
+        { id: 'duedate', name: 'Due Date' }
       ];
       
       // Store the sheet column names
@@ -125,6 +149,10 @@
           const fieldCell = document.createElement('td');
           const select = document.createElement('select');
           select.id = 'mapping_' + column.replace(/\s+/g, '_');
+          select.onchange = function() { 
+            updateRequiredCheckbox(column);
+            toggleModificationOptions(column);
+          };
           
           // Add options for each Jira field
           JIRA_FIELDS.forEach(function(field) {
@@ -132,24 +160,16 @@
             option.value = field.id;
             option.textContent = field.name;
             
-            // Try to intelligently set default mapping based on column name
-            if (
-              (column.toLowerCase() === 'summary' && field.id === 'summary') ||
-              (column.toLowerCase() === 'description' && field.id === 'description') ||
-              (column.toLowerCase() === 'issue type' && field.id === 'issuetype') ||
-              (column.toLowerCase() === 'priority' && field.id === 'priority') ||
-              (column.toLowerCase() === 'labels' && field.id === 'labels') ||
-              (column.toLowerCase() === 'components' && field.id === 'components') ||
-              (column.toLowerCase() === 'epic link' && field.id === 'epicLink') ||
-              (column.toLowerCase() === 'assignee' && field.id === 'assignee') ||
-              (column.toLowerCase() === 'reporter' && field.id === 'reporter') ||
-              (column.toLowerCase() === 'due date' && field.id === 'duedate')
-            ) {
+            // Default to Epic Link for columns named EPIC or Epic
+            if ((column.toUpperCase() === 'EPIC' || column === 'Epic') && field.id === 'epicLink') {
               option.selected = true;
             }
-            
-            // Default to "not mapped" if no match
-            if (field.id === 'none' && !select.value) {
+            // Default to Ticket ID for columns named # (hash symbol)
+            else if (column === '#' && field.id === 'ticketId') {
+              option.selected = true;
+            }
+            // Default to not mapped for other columns
+            else if (field.id === 'none' && !select.value) {
               option.selected = true;
             }
             
@@ -157,24 +177,149 @@
           });
           
           fieldCell.appendChild(select);
+          
+          // Add modification options div (for prepend/append options)
+          const modDiv = document.createElement('div');
+          modDiv.id = 'mod_options_' + column.replace(/\s+/g, '_');
+          modDiv.className = 'modification-options';
+          
+          // Separator option
+          const separatorLabel = document.createElement('label');
+          separatorLabel.className = 'mod-label';
+          separatorLabel.textContent = 'Separator: ';
+          
+          const separatorInput = document.createElement('input');
+          separatorInput.type = 'text';
+          separatorInput.id = 'separator_' + column.replace(/\s+/g, '_');
+          separatorInput.value = ' '; // Default to space
+          separatorInput.style.width = '50px';
+          
+          separatorLabel.appendChild(separatorInput);
+          modDiv.appendChild(separatorLabel);
+          
+          fieldCell.appendChild(modDiv);
           row.appendChild(fieldCell);
           
+          // Required checkbox cell
+          const requiredCell = document.createElement('td');
+          const requiredCheckbox = document.createElement('input');
+          requiredCheckbox.type = 'checkbox';
+          requiredCheckbox.id = 'required_' + column.replace(/\s+/g, '_');
+          requiredCheckbox.className = 'required-checkbox';
+          
+          // Disable checkbox if not mapped (default)
+          requiredCheckbox.disabled = true;
+          
+          // If this is an EPIC column, enable and check the required checkbox
+          if (column.toUpperCase() === 'EPIC' || column === 'Epic') {
+            requiredCheckbox.disabled = false;
+            requiredCheckbox.checked = true;
+          }
+          
+          const checkboxLabel = document.createElement('label');
+          checkboxLabel.className = 'checkbox-label';
+          checkboxLabel.htmlFor = requiredCheckbox.id;
+          checkboxLabel.textContent = 'Required for sync';
+          
+          requiredCell.appendChild(requiredCheckbox);
+          requiredCell.appendChild(checkboxLabel);
+          row.appendChild(requiredCell);
+          
           tbody.appendChild(row);
+          
+          // Initialize the modification options visibility
+          toggleModificationOptions(column);
         });
         
         // Load any existing mapping
         google.script.run.withSuccessHandler(loadExistingMapping).getColumnMapping();
       }
       
+      // Toggle modification options (separator) based on field type
+      function toggleModificationOptions(column) {
+        const selectId = 'mapping_' + column.replace(/\s+/g, '_');
+        const optionsId = 'mod_options_' + column.replace(/\s+/g, '_');
+        
+        const selectElement = document.getElementById(selectId);
+        const optionsDiv = document.getElementById(optionsId);
+        
+        if (selectElement && optionsDiv) {
+          const value = selectElement.value;
+          // Show options for prepend/append fields
+          if (value.startsWith('prepend_') || value.startsWith('append_')) {
+            optionsDiv.style.display = 'block';
+          } else {
+            optionsDiv.style.display = 'none';
+          }
+        }
+      }
+      
+      // Update required checkbox state based on field selection
+      function updateRequiredCheckbox(column) {
+        const selectId = 'mapping_' + column.replace(/\s+/g, '_');
+        const checkboxId = 'required_' + column.replace(/\s+/g, '_');
+        
+        const selectElement = document.getElementById(selectId);
+        const checkboxElement = document.getElementById(checkboxId);
+        
+        if (selectElement && checkboxElement) {
+          const value = selectElement.value;
+          
+          // Disable required checkbox for not mapped or modifier fields
+          const isModifier = value.startsWith('prepend_') || value.startsWith('append_');
+          checkboxElement.disabled = (value === 'none' || isModifier);
+          
+          // Uncheck if disabled
+          if (checkboxElement.disabled) {
+            checkboxElement.checked = false;
+          }
+          
+          // Auto-check 'summary' field
+          if (value === 'summary') {
+            checkboxElement.checked = true;
+          }
+        }
+      }
+      
       // Load existing mapping configuration
       function loadExistingMapping(mapping) {
         if (mapping) {
-          Object.keys(mapping).forEach(function(column) {
+          sheetColumns.forEach(function(column) {
             const selectId = 'mapping_' + column.replace(/\s+/g, '_');
-            const selectElement = document.getElementById(selectId);
+            const checkboxId = 'required_' + column.replace(/\s+/g, '_');
+            const separatorId = 'separator_' + column.replace(/\s+/g, '_');
             
-            if (selectElement) {
-              selectElement.value = mapping[column];
+            const selectElement = document.getElementById(selectId);
+            const checkboxElement = document.getElementById(checkboxId);
+            const separatorElement = document.getElementById(separatorId);
+            
+            if (selectElement && mapping[column]) {
+              // If mapping is an object with mapped property
+              if (typeof mapping[column] === 'object' && mapping[column].mapped) {
+                selectElement.value = mapping[column].mapped;
+                
+                if (checkboxElement && mapping[column].required) {
+                  checkboxElement.checked = true;
+                }
+                
+                // Set separator if exists
+                if (separatorElement && mapping[column].separator) {
+                  separatorElement.value = mapping[column].separator;
+                }
+              } else {
+                // Legacy format: direct string mapping
+                selectElement.value = mapping[column];
+                
+                // Default summary to required
+                if (mapping[column] === 'summary' && checkboxElement) {
+                  checkboxElement.checked = true;
+                }
+              }
+              
+              // Update required checkbox state
+              updateRequiredCheckbox(column);
+              // Show/hide modification options
+              toggleModificationOptions(column);
             }
           });
         }
@@ -186,10 +331,23 @@
         
         sheetColumns.forEach(function(column) {
           const selectId = 'mapping_' + column.replace(/\s+/g, '_');
+          const checkboxId = 'required_' + column.replace(/\s+/g, '_');
+          const separatorId = 'separator_' + column.replace(/\s+/g, '_');
+          
           const selectElement = document.getElementById(selectId);
+          const checkboxElement = document.getElementById(checkboxId);
+          const separatorElement = document.getElementById(separatorId);
           
           if (selectElement && selectElement.value !== 'none') {
-            mapping[column] = selectElement.value;
+            mapping[column] = {
+              mapped: selectElement.value,
+              required: checkboxElement ? checkboxElement.checked : false
+            };
+            
+            // Add separator if this is a prepend/append field
+            if (selectElement.value.startsWith('prepend_') || selectElement.value.startsWith('append_')) {
+              mapping[column].separator = separatorElement ? separatorElement.value : ' ';
+            }
           }
         });
         
